@@ -1,8 +1,3 @@
-
-#include <cmath>
-#include <vector>
-#include <string>
-
 #include "Vector3D.h"
 
 using namespace std;
@@ -44,12 +39,24 @@ void Vector3D::operator -= (Vector3D v) {
 	this->z -= v.z;
 }
 
-Vector3D Vector3D::operator * (double d) {
-	return Vector3D(x * d, y * d, z * d);
+Vector3D Vector3D::operator * (double s) {
+	return Vector3D(x * s, y * s, z * s);
 }
 
-Vector3D Vector3D::operator / (double d) {
-	return Vector3D(x / d, y / d, z / d);
+Vector3D Vector3D::operator *= (double s) {
+	x *= s, y *= s, z *= s;
+	return *this;
+}
+
+Vector3D Vector3D::operator / (double s) {
+	return Vector3D(x / s, y / s, z / s);
+}
+
+Vector3D Vector3D::operator /= (double s) {
+	x /= s;
+	y /= s;
+	z /= s;
+	return *this;
 }
 
 double Vector3D::magnitude() {
@@ -62,9 +69,9 @@ Vector3D Vector3D::unit() {
 
 Vector3D Vector3D::cross(Vector3D v) {
 
-	int dx = (y * v.z) - (z * v.y), 
-		dy = (z * v.x) - (x * v.z), 
-		dz = (x * v.y) - (y * v.x);
+	double dx = (y * v.z) - (z * v.y), 
+		   dy = (z * v.x) - (x * v.z), 
+		   dz = (x * v.y) - (y * v.x);
 
 	x = dx;
 	y = dy;
