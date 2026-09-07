@@ -1,49 +1,31 @@
-#include <iostream>
+#include "Camera.h"
 
-#include <cmath>
-#include "Vector3D.h"
+Camera::Camera() 
+{
+	update();
+}
 
-class Camera {
-public:
+void Camera::update() {
 
-	double pitchTheta = 0;
-	double yawTheta = 0;
+	double sinP = sin(pitchTheta), cosP = cos(pitchTheta);
+	double sinY = sin(yawTheta), cosY = cos(yawTheta);
 
-	Vector3D position = Vector3D();
+	up = Vector3D(sinY * sinP, -cosP, cosY * sinP).unit();
+	look = Vector3D(-sinY * cosP, -sinP, -cosY * cosP).unit();
+	right = Vector3D(cosY, 0, -sinY);
 
-	Vector3D up, look, right;
+}
 
-	Camera() {
-		update();
-	}
+Vector3D Camera::getProjected(Vector3D point) {
 
-	void update() {
+	Vector3D point2 = position - point;
 
-		double sinP = sin(pitchTheta), cosP = cos(pitchTheta);
-		double sinY = sin(yawTheta), cosY = cos(yawTheta);
+	double x = right.dot(point2);
+	double y = up.dot(point2);
+	double z = look.dot(point2);
+	
+	Vector3D projected = Vector3D(x * 1600 / z, y * 1600 / z, z);
 
-		up = Vector3D(cosY * (-sinP), cosP, sinY * (-sinP)).unit();
-		look = Vector3D(cosY * cosP, sinP, sinY * cosP).unit();
-		right = Vector3D(sinY, 0, -cosY);
+	return projected;
 
-	}
-
-	Vector3D getProjected(Vector3D point) {
-
-		Vector3D point2 = -point - position;
-
-		double x = right.dot(point2);
-		double y = up.dot(point2);
-		double z = look.dot(point2);
-
-		Vector3D projected = Vector3D(x * 1600 / z, y * 1600 / z, z);
-
-		return projected;
-
-	}
-
-	/*CFrame operator + (CFrame cframe)
-	{
-		return CFrame(pitchTheta + cframe.pitchTheta, yawTheta + cframe.yawTheta, position + cframe.position);
-	}*/
-};
+}

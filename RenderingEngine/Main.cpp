@@ -1,106 +1,773 @@
 
+
 #include "Main.h"
+#include <chrono>
 
+/* RGB Color */
 
-Color3::Color3() {
+Color3::Color3() 
+{
+	// default the RGB value to black
 	R = G = B = 0;
+	// set the alpha value to max (opaque)
+	this->A = 255;
 }
-Color3::Color3(int value) {
+
+Color3::Color3(char value) {
+	// assign the given value to RGB
 	R = G = B = value;
+	// set the alpha value to max (opaque)
+	this->A = 255;
 }
-Color3::Color3(int value, float opacity) {
-	this->opacity = opacity;
+
+Color3::Color3(char value, float alpha) {
+	// assign the given value to RGB and alpha to A
 	R = G = B = value;
+	this->A = alpha;
 }
-Color3::Color3(int R, int G, int B) {
+
+Color3::Color3(char R, char G, char B) {
+	// assign the given RGB values
 	this->R = R;
 	this->G = G;
 	this->B = B;
+	// set the alpha value to max (opaque)
+	this->A = 255;
 }
+
 Color3 Color3::operator * (float mult) {
+	// create a copy of the current color object scaling along each axis by mult
 	Color3 color = Color3((int)(R * mult), (int)(G * mult), (int)(B * mult));
-	color.opacity = this->opacity;
+	// copy the original colors alpha
+	color.A = this->A;
+	// return the new color object
 	return color;
 }
 
+/* BitMap */
+
 BitMap::BitMap() {}
 
+BitMap::BitMap(std::string fileDirectory)
+{
+	// instantiate a file object
+	std::ifstream file;
 
-void RenderPane::setLPBit(int x, int y, Color3 color, float z) {
+	// attempt to access the bmp file
+	file.open(fileDirectory, std::ios::binary);
 
-	if (x < 0 || y < 0 || x >= width || y >= height) {
+	// if the file was not opened
+	if (!file.is_open())
+	{
+		// print a failure message and return an empty bitmap
+		std::cout << "failure";
 		return;
 	}
 
+	// create an array to store read bytes
+	char* read_bytes = new char[4];
+
+	// read the first two bytes and check the file type
+	file.read(read_bytes, 2);
+	bool BMheader = read_bytes[0] == 'B' && read_bytes[1] == 'M';
+
+	// if the file is not a bitmap
+	if (!BMheader)
+	{
+		// free memory
+		delete[] read_bytes;
+		// print a failure message and return an empty bitmap
+		std::cout << "file is not a bitmap";
+		return;
+	}
+
+	// read the total size of the bitmap file
+	file.read(read_bytes, 4);
+	uint32_t total_size = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;
+
+	// skip: file creation information 
+	file.ignore(4);
+
+	// find the location of the bitmap data
+	file.read(read_bytes, 4);
+	uint32_t data_offset = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;
+
+
+	// read the header size
+	file.read(read_bytes, 4);
+	uint32_t header_size = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;
+
+	// if the file's header is not BITMAPINFOHEADER
+	if (header_size != 40)
+	{
+		// free memory
+		delete[] read_bytes;
+		// print a failure message and return an empty bitmap
+		std::cout << "file's header BITMAPINFOHEADER";
+		return;
+	}
+
+	// read the file width
+	file.read(read_bytes, 4);
+	width = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;
+
+	// read the file height
+	file.read(read_bytes, 4);
+	height = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;
+
+	// skip: number of color planes
+	file.ignore(2);
+
+	// read the number of bits per pixel
+	file.read(read_bytes, 2);
+	bpp = read_bytes[0] | read_bytes[1] << 8;
+
+	// read the compression method
+	file.read(read_bytes, 4);
+	uint32_t compression_method = read_bytes[0] | read_bytes[1] << 8 | read_bytes[2] << 16 | read_bytes[3] << 24;;
+
+	// if the file has a different compression method
+	if (compression_method != 0)
+	{
+		// free memory
+		delete[] read_bytes;
+		// print a failure message and return an empty bitmap
+		std::cout << "file is not: uncompressed rgb bitmap";
+		return;
+	}
+
+	// 34 bytes in
+
+	// skip to the start of the image data frpm 
+	file.ignore(data_offset - 34);
+
+	byte_count = width * height * bpp / 8;
+
+	char* pixel_data = new char[byte_count];
+
+	bytes = new uint8_t[byte_count];
+
+	file.read(pixel_data, byte_count);
+
+	memcpy(bytes, pixel_data, byte_count);
+
+	// free memory
+	delete[] pixel_data;
+	delete[] read_bytes;
+
+	// end
+	return;
+}
+
+BitMap::~BitMap() 
+{
+	// free memory
+	delete [] bytes;
+}
+
+BitMap& BitMap::operator=(const BitMap& rhs)
+{
+	// copy data
+	width = rhs.width;
+	height = rhs.height;
+	bpp = rhs.bpp;
+	byte_count = rhs.byte_count;
+
+	// reserve memory for data
+	bytes = new uint8_t[byte_count];
+
+	// copy data from original
+	memcpy(bytes, rhs.bytes, byte_count);
+
+	// return the bitmap
+	return *this;
+}
+
+/* RenderPane */
+
+// check bounds and sets the pixel value 
+void RenderPane::setLPBit(int x, int y, float z, Color3 color) {
+
+	// check if the pixel is contained in the pane
+	if (x < 0 || y < 0 || x >= width || y >= height)
+		return;
+
+	// calculate the pixel ID
 	int pxID = (y * width + x);
 
+	// check if the pixel is infront of the current pixel or it doesn't exist
 	if (lpDistance[pxID] >= z || lpDistance[pxID] == 0)
 	{
+		// set the distance value
 		lpDistance[pxID] = (float)z;
 
+		// find the color array index
 		pxID *= 4;
 
-		lpBits[pxID + 0] = color.B;//lerp(lpBits[pxID + 0], color.B, 1 - color.opacity);
-		lpBits[pxID + 1] = color.G;//lerp(lpBits[pxID + 1], color.G, 1 - color.opacity);
-		lpBits[pxID + 2] = color.R;//lerp(lpBits[pxID + 2], color.R, 1 - color.opacity);
+		// set the color value
+		lpBits[pxID + 0] = color.B;
+		lpBits[pxID + 1] = color.G;
+		lpBits[pxID + 2] = color.R;
 	}
 }
 
-void RenderPane::drawBitmap(BitMap bitmap)
+// draw the pixels from a bitmap onto the renderpane
+void RenderPane::drawBitmap(BitMap& bitmap)
 {
-	for (unsigned int x = 0; x < bitmap.width; x++)
-		for (unsigned int y = 0; y < bitmap.height; y++)
+	// loop through each pixel
+	for (int x = 0; x < bitmap.width; x++)
+		for (int y = 0; y < bitmap.height; y++)
 		{
-			unsigned int location = bitmap.bpp * (y * bitmap.width + x) / 8;
-			uint8_t B = bitmap.bytes[location + 1];
-			uint8_t G = bitmap.bytes[location + 2];
-			uint8_t R = bitmap.bytes[location + 3];
+			// find the location of the pixel in the array
+			int location = bitmap.bpp * (y * bitmap.width + x) / 8;
 
-			setLPBit(x, y, Color3(R, G, B), 1);
+			// colect the color values
+			uint8_t B = bitmap.bytes[location    ];
+			uint8_t G = bitmap.bytes[location + 1];
+			uint8_t R = bitmap.bytes[location + 2];
+
+			setLPBit(x, bitmap.height - 1 - y, 1, Color3(R, G, B));
 		}
 }
 
-void RenderPane::clear() {
-
-	for (int x = 0; x < width; x++) {
-		for (int y = 0; y < height; y++) {
-
-			int pxID = (y * width + x);
-			lpDistance[pxID] = 0;
-
-			pxID *= 4;
-
-			lpBits[pxID + 0] = 0;
-			lpBits[pxID + 1] = 0;
-			lpBits[pxID + 2] = 0;
-
-		}
-	}
+// sets the values at each pixel to zero
+void RenderPane::clear() 
+{
+	// reset each element in the color and distance arrays
+	std::memset(lpBits, 0, width * height * 4);
+	std::memset(lpDistance, 0, width * height * sizeof(float));
 }
 
+// create a render pane object
 RenderPane::RenderPane(int width, int height)
 {
+	// update the width and height
 	this->width  =  width;
 	this->height = height;
+
+	// reserve memory to store the color and distance for each pixel
 	lpBits = new BYTE[4 * width * height]();
 	lpDistance = new float[width * height]();
 }
 
-
-Face::Face() {
-	info = new int[9] {0};
-}
-Mesh::Mesh() {}
-Mesh::Mesh(size_t vSize, size_t nSize, size_t tCSize, size_t fSize)
+RenderPane::~RenderPane()
 {
-	vertices.resize(vSize);
-	normals.resize(nSize);
-	textureCoords.resize(tCSize);
-
-	faces.resize(fSize);
+	// free memory
+	delete[] lpBits;
+	delete[] lpDistance;
 }
 
-DWORD WINAPI threadLoop( LPVOID lpParam ) {
+/* Face */
+
+Vector3D calculateNormal(Vector3D& v1, Vector3D& v2, Vector3D& v3)
+{
+	// the unit surface normal is the unit of the cross product of the edge vectors
+	return (v2 - v1).cross(v3 - v1).unit();
+}
+
+/* Mesh */
+
+Mesh::Mesh() {} // default defined inside class definition
+
+Mesh::Mesh(std::string file_path)
+{
+	// attempt to open the .obj file
+	std::ifstream file(file_path);
+
+	// return empty mesh if file doesn't exist
+	if (!file.is_open())
+		return;
+
+	// store hold the current line
+	std::string line;
+	// store extracted information
+	std::string* information = nullptr;
+	// store the numerical values of extracted information
+	void* tmp;
+	Face face;
+	Vector3D v3;
+	Vector2D v2;
+
+	// create stacks to hold the mesh information
+	std::stack<Vector3D> vertices;
+	std::stack<Vector3D> normals;
+	std::stack<Vector2D> textureCoords;
+	std::stack<Face>    faces;
+
+	// read the each line
+	while (std::getline(file, line))
+	{
+		// read the first character to determine the type
+		switch (line[0])
+		{
+		case 'v':
+			// read the second character to determine the subtype
+			switch (line[1])
+			{
+			case ' ': // vertex
+
+				// extract the data starting at the index 2 and collect 3 number strings
+				information = numberExtract(line, 2, 3);
+
+				// convert data and free memory
+				v3 = Vector3D(stod(information[0]), stod(information[1]), stod(information[2]));
+				delete[] information;
+
+				// add the vertex to the list of mesh vertices
+				vertices.push(v3);
+
+				break;
+			case 'n': // vertex normal
+
+				// extract the data starting at the index 3 and collect 3 number strings
+				information = numberExtract(line, 3, 3);
+
+				// convert data and free memory
+				v3 = Vector3D(stod(information[0]), stod(information[1]), stod(information[2]));
+				delete[] information;
+
+				// add the normal to the list of mesh normals
+				normals.push(v3);
+
+				break;
+			case 't': // vertex texture coordinates
+
+				// extract the data starting at the index 3 and collect 2 number strings
+				information = numberExtract(line, 3, 2);
+
+				// convert data and free memory
+				v2 = Vector2D(stod(information[0]), stod(information[1]));
+				//tmp = new double[2] {stod(information[0]), stod(information[1])};
+
+				// add the coordinate to the list of mesh texture coordinates
+				textureCoords.push(v2);
+
+				delete[] information;
+				information = nullptr;
+				/*delete[] tmp;
+				tmp = nullptr;*/
+
+				break;
+			}
+			break;
+		case 'f': // face
+
+			// extract the data starting at the index 3 and collect 9 number strings
+			information = numberExtract(line, 2, 9);
+
+			// create a new face to store data
+			face = Face();
+			// convert data
+			tmp = new int[9] {
+				stoi(information[0]) - 1, stoi(information[3]) - 1, stoi(information[6]) - 1,
+					stoi(information[1]) - 1, stoi(information[4]) - 1, stoi(information[7]) - 1,
+					stoi(information[2]) - 1, stoi(information[5]) - 1, stoi(information[8]) - 1
+				};
+			//copy data into the new face
+			memcpy(face.info, tmp, sizeof(face.info));
+
+			// free memory
+			delete[] information;
+			delete[] tmp;
+			information = nullptr;
+			tmp = nullptr;
+
+			// add the face to the list of mesh faces
+			faces.push(face);
+
+			break;
+		}
+	}
+
+	// create a new mesh with space for all of the mesh data collected from the obj
+	sizes[0] = vertices.size();
+	sizes[1] = normals.size();
+	sizes[2] = textureCoords.size();
+	sizes[3] = faces.size();
+
+	// create arrays to hold mesh data 
+	this->vertices = new Vector3D[sizes[0]];
+	this->normals = new Vector3D[sizes[1]];
+	this->textureCoords = new Vector2D[sizes[2]];
+	this->faces = new Face[sizes[3]];
+
+	// copy the vertex data from the stacks into the mesh
+	while (!vertices.empty())
+	{
+		this->vertices[vertices.size() - 1] = vertices.top();
+		vertices.pop();
+	}
+
+	// copy the normal data from the stacks into the mesh
+	while (!normals.empty())
+	{
+		this->normals[normals.size() - 1] = normals.top();
+		normals.pop();
+	}
+
+	// copy the texture coordinate data from the stacks into the mesh
+	while (!textureCoords.empty())
+	{
+		this->textureCoords[textureCoords.size() - 1] = textureCoords.top();
+		textureCoords.pop();
+	}
+
+	// copy the face data from the stacks into the mesh
+	while (!faces.empty())
+	{
+		this->faces[faces.size() - 1] = faces.top();
+		faces.pop();
+	}
+
+	// return the mesh
+	return;
+
+}
+
+Mesh::Mesh(const Mesh& orig)
+{
+	// copy original size data to the new mesh
+	memcpy(sizes, orig.sizes, sizeof(orig.sizes));
+
+	// create arrays to hold the mesh data using copied size data
+	vertices = new Vector3D[sizes[0]];
+	normals = new Vector3D[sizes[1]];
+	textureCoords = new Vector2D[sizes[2]];
+	faces = new Face[sizes[3]];
+
+	// copy original mesh data to the new mesh
+	memcpy(vertices, orig.vertices, sizeof(Vector3D) * sizes[0]);
+	memcpy(normals, orig.normals, sizeof(Vector3D) * sizes[1]);
+	memcpy(textureCoords, orig.textureCoords, sizeof(Vector2D) * sizes[2]);
+	memcpy(faces, orig.faces, sizeof(Face) * sizes[3]);
+}
+
+Mesh& Mesh::operator = (const Mesh& orig)
+{
+	// if self assign don't change anything
+	if (this == &orig) return *this;
+
+	// free old data
+	delete[] vertices;
+	delete[] normals;
+	delete[] textureCoords;
+	delete[] faces;
+
+	// copy original size data to the new mesh
+	memcpy(sizes, orig.sizes, sizeof(orig.sizes));
+
+	// create arrays to hold the mesh data using copied size data
+	vertices = new Vector3D[sizes[0]];
+	normals = new Vector3D[sizes[1]];
+	textureCoords = new Vector2D[sizes[2]];
+	faces = new Face[sizes[3]];
+
+	// copy original mesh data to the new mesh
+	memcpy(vertices,	  orig.vertices,	  sizeof(Vector3D) * sizes[0]	);
+	memcpy(normals,		  orig.normals,		  sizeof(Vector3D) * sizes[1]	);
+	memcpy(textureCoords, orig.textureCoords, sizeof(Vector2D) * sizes[2]	);
+	memcpy(faces,		  orig.faces,		  sizeof(Face) * sizes[3]		);
+
+	// return the mesh
+	return *this;
+}
+
+Mesh::~Mesh() 
+{
+	// free memory
+	delete [] vertices;
+	delete [] normals;
+	delete [] textureCoords;
+	delete [] faces;
+}
+
+/* Helper Functions */
+
+// get values seperated by space characters
+std::string* numberExtract(std::string str, int initialIndex, int nElements)
+{
+	// create an array to store strings
+	std::string* stringArray = new std::string[nElements]();
+
+	// track the amount of sequences seperated 
+	int separations = 0;
+
+	// track the current character index
+	int i = initialIndex;
+
+	// loop until str has no more characters or we have a triplet
+	while (i < str.length() && separations < nElements)
+	{
+		// if the character is not a number or a decimal point
+		if ((str[i] < '0' || str[i] > '9') && str[i] != '.' && str[i] != '-')
+		{
+			separations++;
+		}
+		// otherwise addend the character to the current sequence
+		else
+			stringArray[separations] += str[i];
+
+		// increment the index
+		i++;
+	}
+
+	// return the triplet
+	return stringArray;
+}
+
+// sorts an array of size 3
+static void sort3(double* array)
+{
+	// sort the first two elements
+	if (array[0] > array[1])
+		std::swap(array[0], array[1]);
+
+	// end if the array is sorted
+	if (array[2] > array[1])
+		return;
+
+	// sort the last two elements
+	std::swap(array[1], array[2]);
+
+	// end if the array is sorted
+	if (array[0] < array[1])
+		return;
+
+	// sort the first two elements
+	std::swap(array[0], array[1]);
+
+	// the array is sorted
+	return;
+}
+
+// finds the rectangle containing a triangle
+static void getBounds(int* output, Triangle& vertices)
+{
+	// create arrays to store the distance along each axis
+	double X[3] = { vertices.a.x, vertices.b.x, vertices.c.x };
+	double Y[3] = { vertices.a.y, vertices.b.y, vertices.c.y };
+
+	// sort the positions along each axis
+	sort3(X);
+	sort3(Y);
+
+	// set the bounds to the min and max along each axis and bind to the screen.
+	output[0] = max(min((int)floor(X[0]), width - 1), 0);
+	output[1] = max(min((int)floor(Y[0]), height - 1), 0);
+	output[2] = max(min((int)ceil(X[2]), width - 1), 0);
+	output[3] = max(min((int)ceil(Y[2]), height - 1), 0);
+}
+
+long long int frames = 0;
+std::chrono::time_point<std::chrono::high_resolution_clock> startT, endT;
+std::chrono::nanoseconds clear_time(0);
+
+// draw a triangle to the screen using its vertex, texture and normal data
+static void drawFace(Triangle& vertices, int faceId)
+{
+	// triangle edge vectors 
+	Vector3D left = (vertices.b - vertices.a);
+	Vector3D right = (vertices.c - vertices.a);
+
+	// the normal values compared to the sun direction at each vertex
+	double normalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[6]].dot(sunDirection)) * 0.5);
+	double leftNormalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[7]].dot(sunDirection)) * 0.5) - normalSun;
+	double rightNormalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[8]].dot(sunDirection)) * 0.5) - normalSun;
+
+	// texture coordinates
+	Vector2D& textureOrigin = model.mesh->textureCoords[model.mesh->faces[faceId].info[3]];
+	Vector2D textureLeft = model.mesh->textureCoords[model.mesh->faces[faceId].info[4]] - textureOrigin;
+	Vector2D textureRight = model.mesh->textureCoords[model.mesh->faces[faceId].info[5]] - textureOrigin;
+
+	// collect texture bitmap data
+	int spacing = model.bitmap->bpp / 8;
+	int& end = model.bitmap->byte_count;
+
+	// find the screenspace bounds of the face.
+	int bounds[4] = { 0,0,0,0 };
+	getBounds(bounds, vertices);
+
+	// calculate the inverse of the scalar for the edge vectors
+	double inv_scalar = (left.y * right.x - left.x * right.y);
+
+	// scale the edge vectors prior to entering the loop
+	left.x /= inv_scalar;
+	left.y /= inv_scalar;
+	right.x /= inv_scalar;
+	right.y /= inv_scalar;
+
+	// store the mapping of (x, y) onto (u, v)
+	double u, v;
+
+	// instantiate variables
+	int mlt_x = (bounds[1] - 1) * width + (bounds[0] - 1);
+	int mlt_xy;
+
+	int pxID_x = 4 * mlt_x;
+	int pxID_xy;
+
+	// locate the initial point mapping (x,y) onto (u,v) from the top left corner of the bounding rect
+	double	u_i = ((vertices.a.y - bounds[1] + 1) * left.x + (bounds[0] - 1 - vertices.a.x) * left.y),
+			v_i = ((vertices.a.x - bounds[0] + 1) * right.y + (bounds[1] - 1 - vertices.a.y) * right.x);
+
+	// loop horizontally
+	for (int x = bounds[0]; x <= bounds[2]; x++)
+	{
+
+		// increment variables for horizontal adjustments
+		mlt_x += 1;
+		pxID_x += 4;
+
+		u_i += left.y;
+		v_i -= right.y;
+		
+		u = u_i;
+		v = v_i;
+
+		// update duplicate variables for vertical adjustments
+		mlt_xy = mlt_x;
+		pxID_xy = pxID_x;
+
+		// loop vertically
+		for (int y = bounds[1]; y <= bounds[3]; y++)
+		{
+
+			// increment variables for vertical adjustments
+			mlt_xy += width;
+			pxID_xy += 4 * width;
+
+			u -= left.x;
+			v += right.x;
+
+			// skip the pixel if it is outside the triangle
+			if (u < 0 || v < 0 || u + v > 1)
+				continue;
+
+			/* check distance */
+
+			// calculate the pixel's distance from the camera
+			double distance = v * left.z + u * right.z + vertices.a.z;
+
+			// check if the pixel is either empty or closer to the camera
+			if (0 != renderPane.lpDistance[mlt_xy] && renderPane.lpDistance[mlt_xy] > distance) continue;
+
+			// update the pixel's distance from the camera
+			renderPane.lpDistance[mlt_xy] = (float)distance;
+
+			/* find pixel color and shade */
+
+			// locate the texture index
+			// interpolate vertex coordinates to find pixel coordinates 
+			int colorIndex = (
+				(int)((
+					(int)((
+						textureLeft.y * v + textureRight.y * u + textureOrigin.y
+					) * (
+						model.bitmap->height
+					)) + (
+						textureLeft.x * v + textureRight.x * u + textureOrigin.x
+					)) * (
+						model.bitmap->width
+				))
+			) * spacing;
+
+			// interpolate the brightness multipliers for shading
+			double sunShade = leftNormalSun * v + rightNormalSun * u + normalSun;
+
+			/* update the pixel */
+
+			// check if the color index is located within the bitmap array
+			if (colorIndex >= 0 && colorIndex + 3 < end)
+			{
+				// set the pixel color value and adjust brightness based on sun direction
+				renderPane.lpBits[pxID_xy    ] = (BYTE)(model.bitmap->bytes[colorIndex    ] * sunShade);
+				renderPane.lpBits[pxID_xy + 1] = (BYTE)(model.bitmap->bytes[colorIndex + 1] * sunShade);
+				renderPane.lpBits[pxID_xy + 2] = (BYTE)(model.bitmap->bytes[colorIndex + 2] * sunShade);
+				
+			}
+		}
+	}
+
+}
+
+static void drawObjectParallel(Camera& camera, Vector3D* projectedVertices, int start, int end)
+{
+
+	for (int faceId = start; faceId < end; faceId++)
+	{
+		// Check if any point on face is visible to the camera
+		// convert from base 1 index to base 0
+		Vector3D normal = calculateNormal(
+			projectedVertices[model.mesh->faces[faceId].info[0]],
+			projectedVertices[model.mesh->faces[faceId].info[1]],
+			projectedVertices[model.mesh->faces[faceId].info[2]]
+		);
+
+		// check if the face is visible to the camera
+		if (normal.z > 0)
+			continue;
+
+		// get the vertices of the face from the projected vertex vector array
+		Triangle vertices = Triangle(
+			projectedVertices[model.mesh->faces[faceId].info[0]],
+			projectedVertices[model.mesh->faces[faceId].info[1]],
+			projectedVertices[model.mesh->faces[faceId].info[2]]
+		);
+
+		drawFace(vertices, faceId);
+	}
+
+}
+
+static void drawObject(Camera& camera, Model& model) 
+{
+	// check if the model has faces
+	if (model.mesh->sizes[3] == 0) return;
+
+	// create an array to hold the projected vertices
+	Vector3D* projectedVertices = new Vector3D[model.mesh->sizes[0]];
+
+	// project each vertex into screen space
+	for (int i = 0; i < model.mesh->sizes[0]; i++)
+		projectedVertices[i] = (midpoint + camera.getProjected(model.mesh->vertices[i]));
+
+	// section out the faces and handle the rendering on seperate threads
+	for (int i = 0; i < amtThreads; i++) 
+		threads[i] = std::thread(
+			drawObjectParallel, 
+			std::ref(camera), 
+			projectedVertices,
+			(i * (int)model.mesh->sizes[3]) / amtThreads,
+			((i + 1) * (int)model.mesh->sizes[3]) / amtThreads
+		);
+
+	// rejoin the threads
+	for (auto& t : threads) t.join();
+
+	// free the projections from memory
+	delete [] projectedVertices;
+}
+
+static void renderScene(int width, int height)
+{
+
+	// access the camera and update its variables
+	Camera& camera = *CAMERA_PTR;
+
+	camera.yawTheta = yaw * 2 * M_PI;
+	camera.pitchTheta = pitch * 2 * M_PI;
+	camera.update();
+
+	camera.position = camera.look * (-cameraDistance);
+
+	// draw object
+	drawObject(camera, model);
+
+}
+
+/* Rendering */
+
+DWORD WINAPI threadLoop(LPVOID lpParam) {
 	while (true) {
 		if (hwndGlobal != nullptr) {
 			InvalidateRect(hwndGlobal, nullptr, false);
@@ -110,231 +777,23 @@ DWORD WINAPI threadLoop( LPVOID lpParam ) {
 	return 0;
 }
 
-BitMap readBMP(std::string fileDirectory)
-{
-	std::ifstream file;
-
-	file.open(fileDirectory, std::ios::binary);
-
-	char* bytes = new char[4];
-
-	BitMap bmp = BitMap();
-
-	if (file.is_open()) {
-		
-		file.read(bytes, 2);
-
-		bool BMheader = bytes[0] == 'B' && bytes[1] == 'M';
-
-		if (BMheader) 
-		{
-			file.read(bytes, 4);
-
-			uint32_t total_size = bytes[0] | bytes[1] << 8 | bytes[2] << 16| bytes[3] << 24;
-
-			file.ignore(4); // skip these bytes
-
-			file.read(bytes, 4);
-
-			uint32_t data_offset = bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
-
-			file.read(bytes, 4);
-
-			uint32_t info_size = bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
-
-			file.read(bytes, 4);
-			bmp.width = bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
-
-			file.read(bytes, 4);
-			bmp.height = bytes[0] | bytes[1] << 8 | bytes[2] << 16 | bytes[3] << 24;
-
-			file.ignore(2); // skip these bytes
-
-			file.read(bytes, 2);
-
-			bmp.bpp = bytes[0] | bytes[1] << 8;
-
-			file.ignore(data_offset - 30 - 1); // skip to the start of the image data
-
-			bmp.byte_count = bmp.width * bmp.height * bmp.bpp / 8;
-
-			char* pixel_data = new char[bmp.byte_count];
-
-			bmp.bytes = new uint8_t[bmp.byte_count];
-
-			file.read(pixel_data, bmp.byte_count);
-
-			for (unsigned int x = 0; x < bmp.width; x++)
-				for (unsigned int y = 0; y < bmp.height; y++)
-				{
-					unsigned int position = (y * bmp.width + x) * bmp.bpp / 8;
-					unsigned int inverted = ((bmp.height - y) * bmp.width + x) * bmp.bpp / 8;
-
-					for (int i = 0; i < (int)(bmp.bpp * 0.125); i++)
-					{
-						bmp.bytes[position + i] = (uint8_t)pixel_data[position + i];
-					}
-				}
-
-		}
-	}
-	else 
-	{
-		std::cout << "failure";
-	}
-	return bmp;
-}
-
-std::string* spaceSeperatedValues(std::string str, int initialIndex)
-{
-	std::string* stringArray = new std::string[3]{};
-	int spaces = 0;
-
-	for (int i = initialIndex; i < str.length(); i++)
-	{
-		if (str[i] == ' ')
-		{
-			spaces++;
-			continue;
-		}
-		else
-		{
-			stringArray[spaces] += str[i];
-		}
-	}
-
-	return stringArray;
-}
-
-Mesh readOBJ(std::string file_path)
-{
-
-	std::ifstream file(file_path);
-	std::string str;
-
-	std::getline(file, str);
-
-	std::stack<Vector3D>  vertices;
-	std::stack<Vector3D>  normals;
-	std::stack<Vector3D>  textureCoords;
-	std::stack<Face> faces;
-
-	while (getline(file, str))
-	{
-		if (str[0] == 'v') {
-			if (str[1] == ' ') 
-			{
-				std::string* stringArray = spaceSeperatedValues(str, 2);
-				Vector3D v = Vector3D(
-					stod(stringArray[0]),
-					stod(stringArray[1]),
-					stod(stringArray[2])
-				);
-				vertices.push(v);
-			} 
-			else if(str[1] == 'n') 
-			{
-				std::string* stringArray = spaceSeperatedValues(str, 3);
-				Vector3D vn = Vector3D(
-					stod(stringArray[0]),
-					stod(stringArray[1]),
-					stod(stringArray[2])
-				);
-				normals.push(vn);
-			}
-			else if (str[1] == 't')
-			{
-				std::string* stringArray = spaceSeperatedValues(str, 3);
-				Vector3D vt = Vector3D(
-					stod(stringArray[0]),
-					stod(stringArray[1]),
-					0
-				);
-				textureCoords.push(vt);
-			}
-		}
-		else if (str[0] == 'f') 
-		{
-			std::string* stringArray = spaceSeperatedValues(str, 2);
-			Face intArray = Face();
-			for (int i = 0; i < 3; i++) 
-			{
-				std::string stringArray2[3] = {};
-				int slashes = 0;
-
-				for (int j = 0; j < stringArray[i].length(); j++)
-				{
-					if (stringArray[i][j] == '/')
-					{
-						slashes++;
-						continue;
-					}
-					else
-					{
-						stringArray2[slashes] += stringArray[i][j];
-					}
-				}
-
-				intArray.info[i] = stoi(stringArray2[0]) - 1;
-				intArray.info[3 + i] = stoi(stringArray2[1]) - 1;
-				intArray.info[6 + i] = stoi(stringArray2[2]) - 1;
-
-			}
-			faces.push(intArray);
-
-
-		}
-	}
-
-
-	Mesh meshData = Mesh(vertices.size(), normals.size(), textureCoords.size(), faces.size());
-
-	while (!vertices.empty()) 
-	{
-		meshData.vertices[vertices.size() - 1] = vertices.top();
-		vertices.pop();
-	}
-
-	while (!normals.empty())
-	{
-		meshData.normals[normals.size() - 1] = normals.top();
-		normals.pop();
-	}
-
-	while (!textureCoords.empty())
-	{
-		meshData.textureCoords[textureCoords.size() - 1] = textureCoords.top();
-		textureCoords.pop();
-	}
-
-	while (!faces.empty())
-	{
-		meshData.faces[faces.size() - 1].info = faces.top().info;
-		faces.pop();
-	}
-
-	return meshData;
-
-}
-
-// static Camera *const CAMERA_PTR = new Camera();
-
 int WINAPI main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 
-	Mesh mesh = readOBJ("MonkeyWood.txt"); // Text.txt
+	Mesh mesh("Text.obj");
+	BitMap bmp("monkeytexture.bmp");
 
+	// link mesh and color data to model
 	model.mesh = &mesh;
+	model.bitmap = &bmp;
 
-	mesh.bitmap = readBMP("WoodColor.bmp"); //monkeytexture.bmp
-
-    DWORD id;
+	DWORD id;
 	CreateThread(
-			NULL,
-			0,
-			threadLoop,
-			nullptr,
-			0,
-			&id
+		NULL,
+		0,
+		threadLoop,
+		nullptr,
+		0,
+		&id
 	);
 
 	const char* CLASS_NAME = "myWin32WindowClass";
@@ -347,18 +806,18 @@ int WINAPI main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, i
 	RegisterClass(&wc);
 
 	HWND hwnd = CreateWindowA(
-			CLASS_NAME,
-			"Render Engine",
-			WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-			CW_USEDEFAULT,
-			CW_USEDEFAULT,
-			500,
-			500,
-			nullptr,
-			nullptr,
-			hInstance,
-			nullptr
-		);
+		CLASS_NAME,
+		"Render Engine",
+		WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		500,
+		500,
+		nullptr,
+		nullptr,
+		hInstance,
+		nullptr
+	);
 
 	ShowWindow(hwnd, nCmdShow);
 	UpdateWindow(hwnd);
@@ -374,206 +833,6 @@ int WINAPI main(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, i
 	return 0;
 }
 
-int lerp(int a, int b, double ratio) {
-	return (int)(ratio * (a - b) + b);
-}
-
-static void sort3(double* array)
-{
-	if (array[0] > array[1])
-		std::swap(array[0], array[1]);
-
-	if (array[2] > array[1])
-		return;
-
-	std::swap(array[1], array[2]);
-
-	if (array[0] < array[1])
-		return;
-
-	std::swap(array[0], array[1]);
-}
-
-static void getBounds(int* bounds, Triangle vertices)
-{
-	double X[3] = { vertices.a.x, vertices.b.x, vertices.c.x };
-	double Y[3] = { vertices.a.y, vertices.b.y, vertices.c.y };
-
-	sort3(X);
-	sort3(Y);
-
-	bounds[0] = max((int)floor(X[0]), 0);
-	bounds[1] = max((int)floor(Y[0]), 0);
-	bounds[2] = min((int)ceil(X[2]), width - 1);
-	bounds[3] = min((int)ceil(Y[2]), height - 1);
-}
-
-static void drawFace(Triangle& vertices, int faceId, bool isBack)
-{
-	// the center of the triangle
-	Vector3D mid = (vertices.a + vertices.b + vertices.c) / 3;
-
-	// triangle edge vectors 
-	Vector3D left = (vertices.b - vertices.a);
-	Vector3D right = (vertices.c - vertices.a);
-
-	double normalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[6]].dot(sunDirection)) * 0.5);
-	double leftNormalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[7]].dot(sunDirection)) * 0.5) - normalSun;
-	double rightNormalSun = ((1 - model.mesh->normals[model.mesh->faces[faceId].info[8]].dot(sunDirection)) * 0.5) - normalSun;
-
-	// texture coordinates.
-	Vector3D& textureOrigin = model.mesh->textureCoords[model.mesh->faces[faceId].info[3]];
-	Vector3D textureLeft = model.mesh->textureCoords[model.mesh->faces[faceId].info[4]] - textureOrigin;
-	Vector3D textureRight = model.mesh->textureCoords[model.mesh->faces[faceId].info[5]] - textureOrigin;
-
-	double n_multiplier = 1.0 / (left.y * right.x - left.x * right.y);
-
-	int spacing = model.mesh->bitmap.bpp / 8;
-	int end = model.mesh->bitmap.byte_count;
-
-	// find the screenspace bounds of the face.
-	int bounds[4] = { 0,0,0,0 };
-	getBounds(bounds, vertices);
-
-	int mlt;
-	double m, n;
-	int step = 200;
-
-	for (int x = bounds[0]; x <= bounds[2]; x)
-	{
-		mlt = (bounds[1] - 1) * width;
-
-		for (int y = bounds[1]; y <= bounds[3]; y)
-		{
-			for (int dx = 0; dx < step && x + dx <= bounds[2]; dx++)
-			{
-				int mlt2 = mlt;
-				for (int dy = 0; dy < step && y + dy <= bounds[3]; dy++)
-				{
-					mlt2 += width;
-
-					m = ((x + dx - vertices.a.x) * left.y - (y + dy - vertices.a.y) * left.x) * n_multiplier;
-
-					if (m < 0)
-						continue;
-
-					n = ((y + dy - vertices.a.y) * right.x - (x + dx - vertices.a.x) * right.y) * n_multiplier;
-
-					if (n < 0 || m + n > 1)
-						continue;
-
-					{
-
-						float dist = n * left.z + m * right.z + vertices.a.z;
-
-						int pxID = (mlt2 + x + dx);
-
-						float& distance = renderPane.lpDistance[pxID];
-
-						if (distance < dist && distance != 0) continue;
-
-						distance = dist;
-
-						pxID *= 4;
-
-						double sunShade = leftNormalSun * n + rightNormalSun * m + normalSun;
-
-						Vector3D colorCoord = textureLeft * n + textureRight * m + textureOrigin;
-
-						int colorIndex = ((int)(colorCoord.y * model.mesh->bitmap.height) * model.mesh->bitmap.width + (int)(colorCoord.x * model.mesh->bitmap.width)) * spacing;
-
-						if (isBack)
-						{
-							renderPane.lpBits[pxID] = 0;
-							renderPane.lpBits[pxID + 1] = 0;
-							renderPane.lpBits[pxID + 2] = 255 * sunShade;
-						}
-						else if (colorIndex >= 0 && colorIndex + 3 < end)
-						{
-							renderPane.lpBits[pxID] = model.mesh->bitmap.bytes[colorIndex + 1] * sunShade;
-							renderPane.lpBits[pxID + 1] = model.mesh->bitmap.bytes[colorIndex + 2] * sunShade;
-							renderPane.lpBits[pxID + 2] = model.mesh->bitmap.bytes[colorIndex] * sunShade;
-						}
-					}
-				}
-			}
-			mlt += width * step;
-			y += step;
-		}
-		x += step;
-	}
-
-}
-
-Vector3D calculateNormal(Vector3D v1, Vector3D v2, Vector3D v3)
-{
-	return (v2 - v1).cross(v3 - v1).unit();
-}
-
-static void drawObjectParallel(Camera& camera, std::vector<Vector3D>& projectedVertices, int start, int end)
-{
-	Triangle vertices = Triangle();
-
-	for (int faceId = start; faceId < end; faceId++)
-	{
-
-		// Check if any point on face is visible to the camera
-		// convert from base 1 index to base 0
-		Vector3D normal = calculateNormal(
-			model.mesh->vertices[model.mesh->faces[faceId].info[0]],
-			model.mesh->vertices[model.mesh->faces[faceId].info[1]],
-			model.mesh->vertices[model.mesh->faces[faceId].info[2]]
-		);
-
-		bool isBack = (normal.dot(camera.look) < 0);
-	/*	if (normal.dot(camera.look) < 0)
-			continue;*/
-
-		// get the vertices of the face from the projected vertex vector array
-		{
-			vertices.a = projectedVertices[model.mesh->faces[faceId].info[0]];
-			vertices.b = projectedVertices[model.mesh->faces[faceId].info[1]];
-			vertices.c = projectedVertices[model.mesh->faces[faceId].info[2]];
-		}
-
-		drawFace(vertices, faceId, isBack);
-	}
-
-}
-
-static void drawObject(Camera& camera, Model& model) 
-{
-	if (model.mesh->faces.empty()) return;
-
-	std::vector<Vector3D> projectedVertices;
-	projectedVertices.resize(model.mesh->vertices.size());
-
-	for (int i = 0; i < projectedVertices.size(); i++)
-	{
-		projectedVertices[i] = midpoint + camera.getProjected(model.mesh->vertices[i]);
-	}
-
-	for (int i = 0; i < amtThreads; i++) {
-		threads[i] = std::thread(drawObjectParallel, std::ref(camera), std::ref(projectedVertices), (i * model.mesh->faces.size()) / amtThreads, ((i + 1) * model.mesh->faces.size()) / amtThreads);
-	}
-
-	for (auto& t : threads) t.join();
-}
-
-static void drawObjects(int width, int height)
-{
-	Camera& camera = *CAMERA_PTR;
-
-	camera.yawTheta = yaw * 2 * M_PI;
-	camera.pitchTheta = pitch * 2 * M_PI;
-	camera.update();
-
-	camera.position = camera.look * (-cameraDistance);
-
-	drawObject(camera, model);
-
-}
-
 LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM lparam) {
 
     HDC hdcMem;
@@ -584,14 +843,15 @@ LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM
 
 	auto ms = (const MOUSEHOOKSTRUCT*)lparam;
 
-	static BYTE* lpBits = new BYTE[width * 4 * height]{0};
-
-	renderPane.lpBits = lpBits;
+	static BYTE* lpBits = renderPane.lpBits;
 
 	switch (msg) {
 
 	case WM_DESTROY:
 
+		std::cout << "average time: " << clear_time << " / " << frames - 200 << '\n';
+		
+		delete CAMERA_PTR;
 		PostQuitMessage(0);
 		break;
 
@@ -606,8 +866,8 @@ LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM
 
 		if (leftMouseDown) 
 		{
-			deltaX = xPos - xPosNew;
-			deltaY = yPos - yPosNew;
+			yaw = ((int)(yaw * 2000 + xPos - xPosNew) % 2000) / 2000.0f;
+			pitch = ((int)(pitch * 2000 - yPos + yPosNew) % 2000) / 2000.0f;
 		}
 
 		xPos = xPosNew;
@@ -617,7 +877,7 @@ LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM
 
 	case WM_MOUSEWHEEL:
 		
-		cameraDistance -= GET_WHEEL_DELTA_WPARAM(param) / 100.0;
+		cameraDistance -= GET_WHEEL_DELTA_WPARAM(param) / 100.0f;
 
 		break;
 
@@ -694,10 +954,19 @@ LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM
 
 		hdc = BeginPaint(hwnd, &ps);
 
-		yaw = ((int)(yaw * 1000 + deltaX + yawDelta) % 1000) / 1000.0;
-		pitch = ((int)(pitch * 1000 - deltaY + pitchDelta) % 1000) / 1000.0;
+		yaw = ((int)(yaw * 1000 + deltaX + yawDelta) % 1000) / 1000.0f;
+		pitch = ((int)(pitch * 1000 - deltaY + pitchDelta) % 1000) / 1000.0f;
 
-		drawObjects(width, height);
+		startT = std::chrono::high_resolution_clock::now();
+
+		renderScene(width, height);
+
+		endT = std::chrono::high_resolution_clock::now();
+
+		if (frames > 200)
+			clear_time += endT - startT;
+
+		frames += 1;
 
 		deltaX = 0;
 		deltaY = 0;
@@ -716,6 +985,8 @@ LRESULT CALLBACK WindowProcessMessages(HWND hwnd, UINT msg, WPARAM param, LPARAM
 		EndPaint(hwnd, &ps);
 
 		renderPane.clear();
+
+
 		hwndGlobal = hwnd;
 
 		break;

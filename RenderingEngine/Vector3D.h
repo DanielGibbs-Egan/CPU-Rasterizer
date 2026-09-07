@@ -1,7 +1,8 @@
-
 #pragma once
+
 #include <vector>
 #include <string>
+#include <cmath>
 
 #ifndef VECTOR3D_H_   /* Include guard */
 #define VECTOR3D_H_
@@ -29,9 +30,13 @@ public:
 
 	void operator -= (Vector3D v);
 
-	Vector3D operator * (double d);
+	Vector3D operator * (double s);
 
-	Vector3D operator / (double d);
+	Vector3D operator *= (double s);
+
+	Vector3D operator / (double s);
+
+	Vector3D operator /= (double s);
 
 	double magnitude();
 
